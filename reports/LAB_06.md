@@ -126,11 +126,38 @@ For a batch, the extra risk is a cross-issue mix-up: issue A's file on issue B's
 
 ## Part B · The split
 
-- The coordinator and the roles, and the tools each holds:
-- Why they split by tool surface:
-- The return contract, field by field, and which fields come from the worker's tool calls:
-- Each worker's share of the budget, and what is held back:
-- The five checks, where each is in your code:
+- **The coordinator and the roles, and the tools each holds:**
+  - **Coordinator** (`ways/split.py`): Plain code, with no model or tools. It appears in the trace as an agent with parent `null`. It prepares briefs, reads returns, and matches findings to issues using issue-specific worker names. It uses no tokens.
+  - **Investigator**, one per issue: `issues_read`, `code_search`, `code_read_file`, `code_run_tests`, and a local `return_finding`. It can investigate but cannot make changes.
+  - **Writer**, one per issue: `issues_label`, `pulls_open`, `issues_comment`. It can write but cannot read or search code.
+  - **Flow:** Round 1 runs all investigators concurrently. Round 2 runs writers concurrently for findings with a valid label and file, using threads. Development runs used single issues, so Part C's batch wall-clock is the first test of this parallel execution. Every call passes through the registry and Assignment 5 hook, and comments pass through `with_disclosure` (`Disclosing`) before the registry.
+
+- **Why they split by tool surface:** Tool restrictions control what an agent *can* do, while prompts only give instructions. An investigator cannot modify the tracker, and a writer receives only a structured finding, not the issue text. `RoleTools` enforces this in code: only assigned tool schemas are available, calls to other tools or issues are refused, and writes are checked against the writer's brief. This includes the label, PR file (or no PR for `none`), and the comment's first two lines. Invalid writes are refused, not repaired. However, free-text fields still reach the writer, and one agent could achieve similar restrictions using read-only tools until its finding is finalized. I therefore treat tool separation as a secondary benefit.
+
+- **The return contract, field by field, and which fields come from the worker's tool calls:** Defined before the roles in `split/contract.schema.json`, validated on every return, and recorded as a `worker_return` trace entry. Invalid returns are refused and requested again, never repaired. Non-object returns are recorded as received, and only the first valid return is used.
+
+  | Field | Holds | From |
+  |---|---|---|
+  | `result` | `label` (or `unknown`); `file`: path, `none` for a question, or `null` if undetermined; `what_to_change`; `evidence` | Model |
+  | `status` | `found`, `candidate`, or `out_of_budget` | Model |
+  | `not_searched`, `could_not_determine` | What was not investigated and what could not be resolved | Model |
+  | `searched`, `calls_used` | Queries and paths examined, recorded once; actual course-tool calls | **Harness, from tool calls** |
+
+  The schema allows an undetermined label or file only with `out_of_budget`, distinguishing `none` (no file change) from `null` (not determined). `writable()` also rejects `unknown` and `""`. Checks outside the schema never change `valid`: they record `no_return` when no valid return is produced and `unread_finding` when a `found` result names an unread file. The writer's brief states whether the file was read, based on the harness record. **What the contract loses:** Why other files were rejected, the investigator's reasoning, and how close the bug-versus-feature decision was. This is the cost of isolation.
+
+- **Each worker's share of the budget, and what is held back:** `ctx.budget` (5B for a batch) is divided into fixed shares per issue: 60% for the investigator and 25% for the writer, enforced as worker token limits. At B = 250,000, these are 150,000 and 62,500 tokens, leaving 37,500 (15%) as slack (`budget_plan`). This is not a separate reserve; it allows a worker to exceed its share by one call while keeping the run below its ceiling. Shares are static: a worker that finishes early passes nothing on. The coordinator uses no tokens. Investigators have 12 model calls, writers have 8, and both have a 180-second limit. The investigator's brief states its calls and its token share so it can return `candidate` or `out_of_budget` before being stopped. `budget_check` records total usage. In development, investigators used about 25,000 of 150,000 tokens and writers about 10,000 of 62,500.
+
+- **The five checks, where each is in your code:**
+
+  | Check | Where | In short |
+  |---|---|---|
+  | Return contract | `split/contract.schema.json`, `RoleTools._return` (`split/roles.py`) | Validates and traces returns; invalid ones are refused. |
+  | Deadlock detection | `WaitGraph`, `Waits` (`split/guards.py`), used in `ways/split.py` | Records each wait; a cycle stops one worker, not the coordinator. Workers never wait on each other; replay detects the cycle at turn 1. |
+  | Combined result | `check_combined` (`split/guards.py`), after the last write | Checks tracker state against predefined rules; catches inconsistent outputs, not consistently wrong findings. |
+  | Idempotency and compare-and-set | Assignment 3 write keys; `SharedState` (`split/guards.py`) | Refuses stale writes, and a retried write lands once. Unused at run time because agents share only the issue-keyed tracker; replay rejects Worker B's stale write. |
+  | One trace | `agent`/`parent` on every line; `agent_tokens`, `budget_check` | Records agent relationships, waits, and token usage, which sums to the run total. |
+
+- **Tried before measuring** (development issues 4191 and 4192, B = 250,000): Both passed the grounded check. Each investigator's first return was valid and `found`, with the file read. No writes were refused, and both combined checks passed. Each run used about 35,000 tokens, took 28 seconds, and cost $0.08. This confirms the implementation works with a real model, not its overall accuracy; Part C measures that. The writer's brief checks never refused a write in any run, so I tested them directly with nine cases: three writes to another issue, a wrong label, a PR and comment naming the wrong file, and three correct writes. The six invalid writes were refused, and the scripted runs showed correct writes pass.
 
 ## Part C · Measured
 
