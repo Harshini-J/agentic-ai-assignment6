@@ -1,0 +1,124 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "result",
+    "status",
+    "searched",
+    "not_searched",
+    "calls_used",
+    "could_not_determine"
+  ],
+  "properties": {
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "file",
+        "what_to_change",
+        "evidence"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "enum": [
+            "bug",
+            "feature",
+            "question",
+            "docs",
+            "unknown"
+          ],
+          "description": "The label, or unknown when you could not settle it."
+        },
+        "file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The repository path of the responsible file; the string none for a question, where nothing needs to change (that is a finding); null when you could not determine the file (that is not)."
+        },
+        "what_to_change": {
+          "type": "string",
+          "description": "One or two sentences on what to change in the file; empty when the file is none or null."
+        },
+        "evidence": {
+          "type": "string",
+          "description": "What you read that shows it, in a sentence; empty if you read nothing that does."
+        }
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "found",
+        "candidate",
+        "out_of_budget"
+      ],
+      "description": "found: you read the file and it explains the issue. candidate: your best answer, not settled. out_of_budget: you must stop; the label and file may be unknown."
+    },
+    "searched": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Every search query and every path read, each once. Filled in by the harness from the worker's own calls."
+    },
+    "not_searched": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "What you know you did not look at."
+    },
+    "calls_used": {
+      "type": "integer",
+      "description": "The number of the worker's calls to the course's tools. Filled in by the harness."
+    },
+    "could_not_determine": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "What you could not settle; an empty list when nothing."
+    }
+  },
+  "anyOf": [
+    {
+      "description": "An answer: found or candidate names a real label and a file (a path, or none for a question).",
+      "properties": {
+        "status": {
+          "enum": [
+            "found",
+            "candidate"
+          ]
+        },
+        "result": {
+          "properties": {
+            "label": {
+              "enum": [
+                "bug",
+                "feature",
+                "question",
+                "docs"
+              ]
+            },
+            "file": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "No answer: only out_of_budget may leave the label or the file undetermined.",
+      "properties": {
+        "status": {
+          "enum": [
+            "out_of_budget"
+          ]
+        }
+      }
+    }
+  ]
+}
