@@ -161,37 +161,63 @@ For a batch, the extra risk is a cross-issue mix-up: issue A's file on issue B's
 
 ## Part C · Measured
 
-**The five constants** (slide 59): model, tools, budget, evaluator, task set.
+**The five constants** (slide 59): model `claude-sonnet-5`; tools `schemas_sha` `703c0002892f27ec`; budget 250,000 tokens per issue (1,250,000 per batch), with one ceiling per task for arms S and M, while arm S-plus received each task's mean arm M spend by design; evaluator `checks_sha` `55abcd67e6a3b208` (`eval/check_task.py`, `eval/check_triage.py`, and the answers), with reviewer `scripted:approve-all`; and task set, the eight tasks in `fixtures/tasks6/` (`batch-a`, `batch-b`, `one-4402`, `one-4403`, `one-4405`, `one-4406`, `one-4409`, `one-4413`). The runner recorded these in every `run_start` line, and the same constants covered all 72 runs. The scripted reviewer also removed human waiting time. Eleven S-plus runs (sweep 2's issues 4406, 4409, and 4413, plus all of sweep 3) failed on their first model call due to my API account's usage limit, using 0 tokens. I moved them to `runs/discarded/` because the harness reruns only runs a quota or rate limit stopped, and it counts a run that ended with an error, as these did, as finished. I reran them with a new key but the same model, code, and command. None of the five constants changed.
 
-**The results.**
+Every arm used `--jobs 1`, and no run ended rate-limited. The harness retries a refused call silently and the trace does not record it, so I cannot rule out a short retry wait; across 919 measured model calls the slowest single call took 14.5 s (medians 1.7 to 2.5 s by arm) and none took over 20 s, so waits did not dominate, and the wall-clock figures reflect the design, not contention.
+
+**The results.** "Lowest and highest sweep" counts tasks passed in a sweep (out of 6 for singles, 2 for batches).
 
 | Arm | Kind | Passes / runs | Lowest and highest sweep | Tasks all three passed | Mean tokens | Mean wall-clock (s) |
 |---|---|---|---|---|---|---|
-| S | single | | | | | |
-| S | batch | | | | | |
-| M | single | | | | | |
-| M | batch | | | | | |
-| S-plus | single | | | | | |
-| S-plus | batch | | | | | |
+| S | single | 18 / 18 | 6 and 6 | 6 of 6 | 49,547 | 13.6 |
+| S | batch | 5 / 6 | 1 and 2 | 1 of 2 | 174,196 | 63.8 |
+| M | single | 18 / 18 | 6 and 6 | 6 of 6 | 39,516 | 20.1 |
+| M | batch | 3 / 6 | 1 and 1 | 1 of 2 | 221,495 | 24.8 |
+| S-plus | single | 18 / 18 | 6 and 6 | 6 of 6 | 28,927 | 13.9 |
+| S-plus | batch | 4 / 6 | 1 and 2 | 1 of 2 | 208,642 | 95.3 |
 
-- Your multiplier (M over S), single and batch, beside the lecture's 15×:
-- Whether S-plus's spend matched M's in fact, task by task:
+Per task (passes of 3 · mean tokens · mean wall-clock), and S-plus's spend as a share of its budget (arm M's mean):
+
+| Task | Arm S | Arm M | Arm S-plus | S-plus over M |
+|---|---|---|---|---|
+| one-4402 | 3/3 · 51,248 · 15.8 s | 3/3 · 47,993 · 21.7 s | 3/3 · 31,243 · 14.1 s | 65% |
+| one-4403 | 3/3 · 46,763 · 12.0 s | 3/3 · 40,986 · 19.6 s | 3/3 · 31,759 · 15.4 s | 77% |
+| one-4405 | 3/3 · 47,630 · 12.8 s | 3/3 · 35,217 · 18.2 s | 3/3 · 28,568 · 12.7 s | 81% |
+| one-4406 | 3/3 · 53,653 · 16.4 s | 3/3 · 40,888 · 23.7 s | 3/3 · 30,483 · 17.4 s | 75% |
+| one-4409 | 3/3 · 49,484 · 12.8 s | 3/3 · 35,759 · 18.3 s | 3/3 · 25,988 · 11.2 s | 73% |
+| one-4413 | 3/3 · 48,504 · 11.7 s | 3/3 · 36,255 · 18.9 s | 3/3 · 25,523 · 12.6 s | 70% |
+| batch-a | 2/3 · 200,093 · 70.9 s | 0/3 · 213,779 · 25.4 s | 1/3 · 207,314 · 100.4 s | 97% |
+| batch-b | 3/3 · 148,299 · 56.8 s | 3/3 · 229,211 · 24.2 s | 3/3 · 209,971 · 90.1 s | 92% |
+
+- **My multiplier (M over S):** 0.80 on single tasks and 1.27 on batches, from each run's `run_end` total. The split used fewer tokens on all six single tasks, by 6% to 28%, but more on both batches: 7% more on batch-a and 55% more on batch-b, so the batch figure is mostly batch-b. The lecture's about 15× is Anthropic-reported, for typical use on its own workload, measured against a chat, where the same source puts one agent at about 4×; mine compares one split design against one agent on one task set, so the two are not comparable. **Wall-clock:** the split was slower on every single task (18 to 24 seconds against 12 to 16) because its two workers run one after the other, as Part A's gate 1 expected, and faster on batches, taking 39% of arm S's time.
+- **Whether S-plus's spend matched M's in fact, task by task:** each S-plus budget was set to arm M's mean token usage for that task, and the budgets agree to the token (arm M's column in the table). On batches S-plus used 92% to 97% of its budget, in 6 or 7 attempts per batch of five issues (1.2 to 1.4 per issue, at about 30,000 to 36,000 tokens each): one attempt on every issue and one or two more, sent to the issues the answers left least settled; on batch-a, one of the extra attempts went to issue 4412 in all three sweeps. On singles it used 65% to 81%, and every one of the 18 runs made exactly one attempt: an attempt costs 24,000 to 32,000 tokens (two ran long, at 39,135 and 43,741), which leaves too little for a second within budgets of 35,000 to 48,000. So the vote could decide only one or two issues per batch and none of the singles. S-plus uses a prompt that matches the investigator's apart from its opening paragraph, the same return contract and the same read-only tools, with the writes done by code, so it differs from arm M mainly in structure, while its differences from arm S go beyond the token budget.
 
 **Slide 18's three questions**, for each kind of task.
 
 | Question | One issue | A batch of five |
 |---|---|---|
-| Did the split spend more? | | |
-| Does spending more raise the score? | | |
-| Given the same budget, did one agent do as well? | | |
+| Did the split spend more? | No. M used 39,516 tokens against S's 49,547 (0.80×). | Yes. M used 221,495 tokens against S's 174,196 (1.27×). |
+| Does spending more raise the score? | No. All three arms passed 18/18: S-plus at 28,927 tokens, M at 39,516 and S at 49,547. The score was at its ceiling. | No. S passed 5/6 at 174,196 tokens, S-plus 4/6 at 208,642 and M 3/6 at 221,495. The sample is small, and every failed batch run, in every arm, got issue 4412 wrong. |
+| Given the same budget, did one agent do as well? | Yes. S-plus passed 18/18 on 73% of M's actual spend. | Yes. S-plus passed 4/6 to M's 3/6 on 94% of M's spend. A gap of one run is within noise, so I read this as "as well", not "better". |
 
-- What you would have claimed from arms S and M alone, and what you claim now:
+The second question is the least clean: the three arms differ in more than budget (M splits the work across agents, and S-plus has a different prompt, a read-only tool surface and writes made by code), so I read it as "none of these spends, from 28,900 to 49,500 tokens on singles and from 174,000 to 221,000 on batches, bought a higher score".
 
-**Every arm M run that failed.**
+The split showed no gain in correctness. The only advantage one agent did not match was batch speed: M took 39% of arm S's wall-clock time. That fits the investigators running at once, not extra spending, since S-plus spent 94% of M's tokens and took 95.3 s.
+
+- **What I would have claimed from arms S and M alone, and what I claim now:**
+  - **From S and M alone:** on single issues, the split got the same accuracy on 20% fewer tokens, which could look like a benefit of the team design. On batches, it was faster but spent more and scored lower.
+  - **Now:** S-plus, one agent with read-only attempts and writes made by code, also passed 18/18, on 73% of the split's tokens. So the saving does not come from having several agents. From my two development runs, I estimate it comes from smaller calls, fewer tool definitions and shorter context histories, all of which one agent can also use.
+  - **On batches:** the split's lower score is not explained by spending too little. One agent given the same budget did at least as well.
+
+**Every arm M run that failed.** Three runs failed, all batch-a, all on issue 4412 (the right answer is `question`, file `none`); the other four issues in each passed.
 
 | Run | What each agent read, wrote and waited on | The first thing that went wrong | Anomaly | MAST category |
 |---|---|---|---|---|
-| | | | | |
+| `split-batch-a-s01-683f15` | `investigator-4412` read the issue (a reporter asking how to configure a probe that returned 200 with `degraded`), searched `/api/v1/health` and `degraded`, and read `src/api/health.ts` (4 calls). It returned `found` / `bug` / `src/api/health.ts`, but its `could_not_determine` said the intended fix was a policy decision that the code alone does not resolve. `writer-4412` received only the brief and applied the label, opened a PR, and posted a matching comment. Only the coordinator waited: on the investigators in round 1 and on the writers in round 2. | The investigator classified a question as a bug, even though its own return acknowledged that the code could not resolve the decision. | none (the writer correctly followed an incorrect finding) | `task_verification` |
+| `split-batch-a-s02-2d111c` | Same investigation (4 calls), but `could_not_determine` questioned whether returning 200 for a degraded state was intentional. | The same incorrect classification. | none | `task_verification` |
+| `split-batch-a-s03-7951f6` | Same investigation, with an additional `healthRouter` search (5 calls). `could_not_determine` questioned whether degraded-as-200 was a documented design decision. | The same incorrect classification. | none | `task_verification` |
+
+These three runs show the same underlying cause, so I count them as one finding. Nothing checked for contradictions within the investigator's return. The contract allows `status: found` even when `could_not_determine` identifies the unresolved question that determines whether the issue is a bug or simply a question. The schema, the writer's brief checks and the combined-result check all passed, because they verify structure and consistency, not correctness against an answer key. A secondary interpretation is system design, since the contract permits this combination and the writer can only follow the finding. I rank it second because both roles behaved as designed. The mistake was not unique to the split: arm S also missed issue 4412 in 1 of its 3 batch-a runs, and arm S-plus's attempts answered `bug` in 5 of their 6 tries.
 
 ## Part D · The decision
 
