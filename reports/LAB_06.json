@@ -28,5 +28,6 @@
     {"run_id": "split-batch-a-s02-2d111c", "anomaly": "none", "mast": "task_verification"},
     {"run_id": "split-batch-a-s03-7951f6", "anomaly": "none", "mast": "task_verification"}
   ],
-  "decision": {"single": null, "batch": null, "revisit_condition": null}
+  "decision": {"single": "single", "batch": "single",
+               "revisit_condition": "A batch of at least 20 separate issues, each with its own test that a worker can run to check its answer, run at once at the same constants over three sweeps, with found returns barred from carrying a non-empty could_not_determine: arm M passes at least as many as arm S and more than arm S-plus, spends at most 1.1x arm S's tokens, and takes at most 50% of arm S's wall-clock; or a triage deadline that arm S (12.8 s per issue in a batch) misses and the split meets."}
 }
